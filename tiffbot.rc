@@ -5,9 +5,66 @@ use std::rt::io::extensions::*;
 use std::str::*;
 //use parse::*;
 //use irc::*;
+use std::comm::*;
+use std::task::*;
 
 pub mod parse;
 pub mod irc;
+
+enum Event {
+    Close(~str),
+    Open(~str, ~str, ~str),
+    HandleMsg(irc::Message),
+}
+
+fn message(con: &Chan<irc::Message>, cmd: ~str, args: ~[~str]) {
+    con.send(irc::Message {prefix: None, command: cmd, params: args});
+}
+
+fn notice(con: &Chan<irc::Message>, chan: ~str, msg: ~str) {
+    message(con, ~"NOTICE", ~[chan, msg]);
+}
+
+fn closed(con: ~Chan<irc::Message>, port: Port<Event>) {
+    match port.recv() {
+        Open(nick, user, realname) => {
+            println("*** Connecting.");
+            message(con, ~"NICK", ~[nick]);
+            message(con, ~"USER", ~[user, ~"0", ~"*", realname]);
+            closed(con, port);
+        }
+        Close(msg) => {
+            println("*** Quitting.");
+            message(con, ~"QUIT", ~[msg]);
+        }
+        HandleMsg(irc::Message {prefix: _, command: ~"001" /*RPL_WELCOME*/, params: _}) => {
+            println("*** Ready.");
+            ready(con, port);
+        }
+        e => fail!(fmt!("Invalid event for state closed: %?", e))
+    }
+}
+
+fn ready(con: ~Chan<irc::Message>, port: Port<Event>) {
+    match port.recv() {
+        Close(msg) => {
+            println("*** Quitting.");
+            message(con, ~"QUIT", ~[msg]);
+        }
+        HandleMsg(m) => {
+            ready(con,port);
+        }
+        e => fail!(fmt!("Invalid event for state ready: %?", e))
+    }
+}
+
+fn start(con: ~Chan<irc::Message>) -> Chan<Event> {
+    let (port, chan) = stream();
+    do spawn_with((con,port)) |(con,port)| {
+        closed(con, port);
+    }
+    chan
+}
 
 fn read_line(con: &mut TcpStream) -> Option<~str> {
     let mut buf = ~[];
@@ -23,14 +80,26 @@ fn read_line(con: &mut TcpStream) -> Option<~str> {
 
 fn main() {
     let args = std::os::args();
+    if args.len() != 5 {
+        println("Usage: "+args[0]+" <IP> <nick> <user> <realname>");
+        return;
+    }
     let ctx = irc::grammar();
     let mut con = TcpStream::connect(FromStr::from_str(args[1]).unwrap()).unwrap();
+    let (port, chan) = stream();
+    let chan = start(~chan);
+    chan.send(Open(args[2].clone(), args[3].clone(), args[4].clone()));
+    do spawn_with(port) |port| {
+        loop {
+            println("<<< " + port.recv().to_str());
+        }
+    }
     loop {
         let line = read_line(&mut con).unwrap();
-        println(line.clone());
+        println(">>> " + line.clone());
         let tok = parse::parse(&ctx, ctx.grammar.get(& &"message"), line, 0);
         match tok {
-            Ok(parse::Token {value: irc::MessageT(msg), line: _}) => println(msg.to_str()),
+            Ok(parse::Token {value: irc::MessageT(msg), line: _}) => chan.send(HandleMsg(msg)),
             Err(e) => println(e.to_str()),
             _ => println("???")
         }

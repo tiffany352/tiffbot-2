@@ -20,16 +20,20 @@ impl ToStr for Prefix {
 
 #[deriving(Clone)]
 pub struct Message {
-    prefix: Prefix,
+    prefix: Option<Prefix>,
     command: ~str,
     params: ~[~str]
 }
 
 impl ToStr for Message {
     fn to_str(&self) -> ~str {
+        let prefixstr = match self.prefix {
+            Some(ref x) => ":" + x.to_str() + " ",
+            None => ~""
+        };
         match self.params.last().iter().any(|x| x.is_whitespace()) {
-            true  => fmt!(":%s %s %s :%s", self.prefix.to_str(), self.command, self.params.init().connect(" "), self.params.last().clone()),
-            false => fmt!(":%s %s %s %s", self.prefix.to_str(), self.command, self.params.init().connect(" "), self.params.last().clone())
+            true  => fmt!("%s%s %s :%s", prefixstr, self.command, self.params.init().connect(" "), self.params.last().clone()),
+            false => fmt!("%s%s %s %s", prefixstr, self.command, self.params.init().connect(" "), self.params.last().clone())
         }
     }
 }
@@ -79,7 +83,7 @@ fn map_message(tok: IRCToken) -> Result<IRCToken, ~str> {
     // Sequence(~[Sequence(~[Sequence(~[Unparsed(~":"), PrefixT(irc::Prefix{nick: ~"tiffany", user: ~"lymia", host: ~"hugs"}), Ignored])]), Unparsed(~"PRIVMSG"), Sequence(~[Params(~[~"##codelab", ~"hi"])])])
     match tok {
         Sequence([Sequence([Sequence([Unparsed(~":"), PrefixT(prefix), Ignored])]), Unparsed(cmd), Sequence([Params(params)])]) =>
-            Ok(MessageT(Message {prefix: prefix, command: cmd, params: params})),
+            Ok(MessageT(Message {prefix: Some(prefix), command: cmd, params: params})),
         _ => Err(~"Malformed message")
     }
 }
