@@ -1,0 +1,39 @@
+use std::rt::io::net::*;
+use std::rt::io::net::tcp::*;
+use std::rt::io::net::ip::*;
+use std::rt::io::extensions::*;
+use std::str::*;
+//use parse::*;
+//use irc::*;
+
+pub mod parse;
+pub mod irc;
+
+fn read_line(con: &mut TcpStream) -> Option<~str> {
+    let mut buf = ~[];
+    loop {
+        match con.read_byte() {
+            None        => return None,
+            Some(13)    => (), // 13 == \r; IRC rfc says to ignore impls which forget CR
+            Some(10)    => return Some(from_utf8(buf)), // 10 == \n
+            Some(c)     => buf.push(c)
+        }
+    }
+}
+
+fn main() {
+    let args = std::os::args();
+    let ctx = irc::grammar();
+    let mut con = TcpStream::connect(FromStr::from_str(args[1]).unwrap()).unwrap();
+    loop {
+        let line = read_line(&mut con).unwrap();
+        println(line.clone());
+        let tok = parse::parse(&ctx, ctx.grammar.get(& &"message"), line, 0);
+        match tok {
+            Ok(parse::Token {value: irc::MessageT(msg), line: _}) => println(msg.to_str()),
+            Err(e) => println(e.to_str()),
+            _ => println("???")
+        }
+    }
+}
+
