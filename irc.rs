@@ -32,8 +32,8 @@ impl ToStr for Message {
             None => ~""
         };
         match self.params.last().iter().any(|x| x.is_whitespace()) {
-            true  => fmt!("%s%s %s :%s", prefixstr, self.command, self.params.init().connect(" "), self.params.last().clone()),
-            false => fmt!("%s%s %s %s", prefixstr, self.command, self.params.init().connect(" "), self.params.last().clone())
+            true  => fmt!("%s%s %s:%s", prefixstr, self.command, self.params.init().map(|s| s.clone() + " ").concat(), self.params.last().clone()),
+            false => fmt!("%s%s %s%s", prefixstr, self.command, self.params.init().map(|s| s.clone() + " ").concat(), self.params.last().clone())
         }
     }
 }
@@ -84,7 +84,9 @@ fn map_message(tok: IRCToken) -> Result<IRCToken, ~str> {
     match tok {
         Sequence([Sequence([Sequence([Unparsed(~":"), PrefixT(prefix), Ignored])]), Unparsed(cmd), Sequence([Params(params)])]) =>
             Ok(MessageT(Message {prefix: Some(prefix), command: cmd, params: params})),
-        _ => Err(~"Malformed message")
+        Sequence([Sequence([]), Unparsed(cmd), Sequence([Params(params)])]) => 
+            Ok(MessageT(Message {prefix: None, command: cmd, params: params})),
+        _ => Err(fmt!("Malformed message: %?", tok))
     }
 }
 
@@ -99,6 +101,10 @@ fn map_prefix(tok: IRCToken) -> Result<IRCToken, ~str> {
         },
         _ => Err(~"Malformed prefix")
     }
+}
+
+fn build_serverprefix(s: ~str) -> Result<IRCToken, ~str> {
+    Ok(PrefixT(Prefix {nick: s, user: ~"", host: ~""}))
 }
 
 pub fn grammar() -> ParseContext<IRCToken> {
@@ -119,7 +125,7 @@ pub fn grammar() -> ParseContext<IRCToken> {
     crlf       =  %x0D %x0A   ; "carriage return" "linefeed" 
     */
     ctx.rule("message", ~Map(~LessThan(1, ~Literal(":") * ~Rule("prefix") * ~Rule("SPACE")) * ~Rule("command") * ~LessThan(1, ~Rule("params")), map_message));
-    ctx.rule("prefix", ~Map(~Rule("nickname") * ~LessThan(1, ~LessThan(1, ~Literal("!") * ~Rule("user")) * ~Literal("@") * ~Rule("host")), map_prefix));
+    ctx.rule("prefix", ~Map(~Rule("nickname") * ~LessThan(1, ~LessThan(1, ~Literal("!") * ~Rule("user")) * ~Literal("@") * ~Rule("host")), map_prefix) + ~Build(~Rule("servername"), build_serverprefix));
     ctx.rule("command", ~Build(~MoreThan(1, ~Rule("letter")) + ~Exactly(3, ~Rule("digit")), build_unparsed));
     ctx.rule("params", ~Map(~More(~Rule("SPACE") * ~Rule("middle")) * ~LessThan(1, ~Rule("SPACE") * ~Literal(":") * ~Rule("trailing"))
                           + ~More(~Rule("SPACE") * ~Rule("middle")) * ~LessThan(1, ~Rule("SPACE") * ~LessThan(1, ~Literal(":")) * ~Rule("trailing")), map_params));
@@ -154,6 +160,7 @@ pub fn grammar() -> ParseContext<IRCToken> {
                   ; any octet except NUL, BELL, CR, LF, " ", "," and ":"
     channelid  = 5( %x41-5A / digit )   ; 5( A-Z / 0-9 )
     */
+    ctx.rule("servername", ~Rule("hostname"));
     ctx.rule("host", ~Build(~Rule("hostname") + ~Rule("hostaddr"), build_unparsed));
     ctx.rule("hostname", ~Rule("shortname") * ~More(~Literal(".") * ~Rule("shortname")));
     ctx.rule("shortname", (~Rule("letter") + ~Rule("digit")) * ~More(~Rule("letter") + ~Rule("digit") + ~Literal("-")));

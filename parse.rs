@@ -30,6 +30,28 @@ pub enum Pattern<'self, T> {
     Map(~Pattern<'self, T>, extern fn(T) -> Result<T, ~str>)
 }
 
+impl<'self,T:Clone> ToStr for Pattern<'self,T> {
+    fn to_str(&self) -> ~str {
+        match self.clone() {
+            Rule(s) => s.to_owned(),
+            Literal(s) => fmt!("\"%s\"", s.to_owned()),
+            Range(x,y) => fmt!("%%%x-%x", x as uint, y as uint),
+            Chars(n) => fmt!("any*%u", n),
+            Set(a) => fmt!("<One of %s>", a.to_str()),
+            More(p) => fmt!("%s*", p.to_str()),
+            MoreThan(n, p) => fmt!("%s*%u %s*", p.to_str(), n, p.to_str()),
+            Exactly(n, p) => fmt!("%s*%u", p.to_str(), n),
+            LessThan(n, p) => fmt!("%s*-%u", p.to_str(), n),
+            Seq(a) => "(" + a.map(|x| x.to_str()).connect(" ") + ")",
+            Or(a) => "(" + a.map(|x| x.to_str()).connect(" | ") + ")",
+            Diff(p1, p2) => fmt!("(%s - %s)", p1.to_str(), p2.to_str()),
+            Build(p, _) => p.to_str(),
+            Map(p, _) => p.to_str(),
+            _ => ~"NYI"
+        }
+    }
+}
+
 pub trait TokenCreator {
     fn sequence(~[Token<Self>]) -> Self;
     fn raw(~str) -> Self;
@@ -302,7 +324,7 @@ pub fn parse<'a,'b, T:'static+Clone+TokenCreator>(ctx: &'a ParseContext<'a, T>, 
                     Err(_) => {}
                 }
             }
-            err(~"Or", None, 0, text.len()) // TODO: Proper error messages here
+            err(pat.to_str(), None, 0, text.len()) // TODO: Proper error messages here
         }
         Diff(ref a, ref b) => match parse(ctx, *b, text, position) {
             Ok(_) => err(fmt!("Not %?",b), None, 0, text.len()),
