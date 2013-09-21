@@ -90,9 +90,10 @@ fn ready(con: ~Chan<~[irc::Message]>, port: Port<Event>) {
                 (43, "join", target) => ~[ // 43 == +
                     join(target.to_owned())
                 ],
-                _ => ~[
+                (43, _, _) => ~[
                     notice(sendee, ~"Command!")
-                ]
+                ],
+                _ => ~[]
             });
             ready(con, port);
         }
